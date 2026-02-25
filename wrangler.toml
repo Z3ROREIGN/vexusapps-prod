@@ -1,31 +1,13 @@
-name = "vexusapps-site"
+name = "vexusapps"
 type = "javascript"
 account_id = ""
 workers_dev = true
-route = ""
-zone_id = ""
 compatibility_date = "2024-12-16"
 compatibility_flags = ["nodejs_compat"]
 
-# Environment variables for MisticPay API
+# Environment variables
 [env.production]
 vars = { ENVIRONMENT = "production" }
-
-# Secrets (set via wrangler secret put)
-# MISTICPAY_CLIENT_ID = "ci_nsq9oxmeym2gp2y"
-# MISTICPAY_CLIENT_SECRET = "cs_qwrpnqcfpi4n8z097p9avl36q"
-
-# D1 Database binding
-[[d1_databases]]
-binding = "DB"
-database_name = "vexusapps"
-database_id = ""
-
-# KV Namespace for caching
-[[kv_namespaces]]
-binding = "CACHE"
-id = ""
-preview_id = ""
 
 # Build configuration
 [build]
@@ -35,3 +17,7 @@ main = "dist/index.js"
 
 [build.upload]
 format = "service-worker"
+
+# Observability
+[observability]
+enabled = true

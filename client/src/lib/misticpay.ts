@@ -5,74 +5,64 @@
  */
 
 const MISTICPAY_API_URL = "https://api.misticpay.com/api";
-const CLIENT_ID = "ci_nsq9oxmeym2gp2y";
-const CLIENT_SECRET = "cs_qwrpnqcfpi4n8z097p9avl36q";
 
-interface PaymentRequest {
+export interface CreateTransactionRequest {
   amount: number;
+  payerName: string;
+  payerDocument: string;
+  transactionId: string;
   description: string;
-  customer_email: string;
-  customer_name: string;
-  product_id: string;
-  webhook_url?: string;
 }
 
-interface PaymentResponse {
-  transaction_id: string;
-  qr_code: string;
-  pix_key: string;
-  status: "pending" | "approved" | "rejected";
-  created_at: string;
-  expires_at: string;
+export interface MisticPayResponse {
+  message: string;
+  data: {
+    transactionId: string;
+    payer: {
+      name: string;
+      document: string;
+    };
+    transactionFee: number;
+    transactionType: string;
+    transactionMethod: string;
+    transactionAmount: number;
+    transactionState: string;
+    qrCodeBase64: string;
+    qrcodeUrl: string;
+    copyPaste: string;
+  };
 }
 
-interface TransactionStatus {
+export interface TransactionStatus {
   id: string;
-  status: "pending" | "approved" | "rejected" | "expired";
+  status: "PENDENTE" | "COMPLETO" | "FALHOU";
   amount: number;
   created_at: string;
-  approved_at?: string;
+  completed_at?: string;
 }
 
 /**
- * Create a new payment transaction
- * Auto-approval is configured on MisticPay dashboard
+ * Create a new payment transaction via MisticPay
+ * Calls backend proxy to keep Client Secret secure
  */
 export async function createPayment(
-  request: PaymentRequest
-): Promise<PaymentResponse> {
+  request: CreateTransactionRequest
+): Promise<MisticPayResponse> {
   try {
-    const response = await fetch(`${MISTICPAY_API_URL}/gerar-transacao`, {
+    const response = await fetch("/api/misticpay/create-transaction", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Client-ID": CLIENT_ID,
-        "Client-Secret": CLIENT_SECRET,
       },
-      body: JSON.stringify({
-        valor: request.amount,
-        descricao: request.description,
-        email_cliente: request.customer_email,
-        nome_cliente: request.customer_name,
-        id_externo: request.product_id,
-        url_webhook: request.webhook_url || `${window.location.origin}/api/webhook/misticpay`,
-      }),
+      body: JSON.stringify(request),
     });
 
     if (!response.ok) {
-      throw new Error(`MisticPay API error: ${response.statusText}`);
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao criar transação");
     }
 
-    const data = await response.json();
-
-    return {
-      transaction_id: data.id,
-      qr_code: data.qr_code,
-      pix_key: data.chave_pix,
-      status: data.status === "pendente" ? "pending" : data.status,
-      created_at: data.criado_em,
-      expires_at: data.expira_em,
-    };
+    return await response.json();
   } catch (error) {
     console.error("Error creating payment:", error);
     throw error;
@@ -88,29 +78,21 @@ export async function checkPaymentStatus(
 ): Promise<TransactionStatus> {
   try {
     const response = await fetch(
-      `${MISTICPAY_API_URL}/verificar-transacao?id=${transactionId}`,
+      `/api/misticpay/check-transaction?id=${transactionId}`,
       {
         method: "GET",
         headers: {
-          "Client-ID": CLIENT_ID,
-          "Client-Secret": CLIENT_SECRET,
+          "Content-Type": "application/json",
         },
       }
     );
 
     if (!response.ok) {
-      throw new Error(`MisticPay API error: ${response.statusText}`);
+      throw new Error("Erro ao verificar transação");
     }
 
     const data = await response.json();
-
-    return {
-      id: data.id,
-      status: data.status === "pendente" ? "pending" : data.status,
-      amount: data.valor,
-      created_at: data.criado_em,
-      approved_at: data.aprovado_em,
-    };
+    return data;
   } catch (error) {
     console.error("Error checking payment status:", error);
     throw error;
@@ -134,21 +116,23 @@ export async function pollPaymentStatus(
       try {
         const status = await checkPaymentStatus(transactionId);
 
-        if (status.status === "approved") {
+        if (status.status === "COMPLETO") {
           clearInterval(interval);
           resolve(status);
-        } else if (status.status === "rejected" || status.status === "expired") {
+        } else if (status.status === "FALHOU") {
           clearInterval(interval);
-          reject(new Error(`Payment ${status.status}`));
+          reject(new Error("Pagamento rejeitado"));
         }
 
         if (attempts >= maxAttempts) {
           clearInterval(interval);
-          reject(new Error("Payment timeout"));
+          reject(new Error("Timeout ao aguardar pagamento"));
         }
       } catch (error) {
-        clearInterval(interval);
-        reject(error);
+        if (attempts >= maxAttempts) {
+          clearInterval(interval);
+          reject(error);
+        }
       }
     }, 2000); // Check every 2 seconds
   });
